@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: certcheck-domains
+  namespace: certcheck
+data:
+  domains.yaml: |
+    - meusite.com.br
+    - outrosite.net.br
+    - google.com
+    - github.com

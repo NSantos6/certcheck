@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: certcheck
+  namespace: certcheck
+spec:
+  schedule: "0 8 * * *"  # todos os dias às 8h
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+
+          # OpenShift SCC: run as non-root
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+
+          containers:
+            - name: certcheck
+              image: registry.interno.exemplo.com/certcheck:latest
+              imagePullPolicy: Always
+
+              command:
+                - certcheck
+                - scan
+                - --file
+                - /config/domains.yaml
+                - --ssl-warn-days
+                - "30"
+                - --domain-warn-days
+                - "60"
+                - --notify
+                - $(NOTIFY_TO)
+                - --smtp-host
+                - $(SMTP_HOST)
+                - --smtp-port
+                - $(SMTP_PORT)
+                - --smtp-user
+                - $(SMTP_USER)
+                - --smtp-pass
+                - $(SMTP_PASS)
+
+              env:
+                - name: NOTIFY_TO
+                  valueFrom:
+                    secretKeyRef:
+                      name: certcheck-smtp
+                      key: notify-to
+                - name: SMTP_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: certcheck-smtp
+                      key: smtp-host
+                - name: SMTP_PORT
+                  valueFrom:
+                    secretKeyRef:
+                      name: certcheck-smtp
+                      key: smtp-port
+                - name: SMTP_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: certcheck-smtp
+                      key: smtp-user
+                - name: SMTP_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: certcheck-smtp
+                      key: smtp-pass
+
+              volumeMounts:
+                - name: domains
+                  mountPath: /config
+
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 64Mi
+
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+
+          volumes:
+            - name: domains
+              configMap:
+                name: certcheck-domains

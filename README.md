@@ -199,6 +199,79 @@ O `certcheck` retorna exit code `1` quando ocorre um erro, facilitando o uso em 
 
 O `certcheck` consulta diretamente o WHOIS do [Registro.br](https://registro.br) para domínios `.br`, `.com.br`, `.net.br`, `.org.br`, entre outros. Não é necessária nenhuma configuração adicional.
 
+## Deploy no OpenShift / Kubernetes
+
+### Estrutura
+
+```
+k8s/
+├── configmap.yaml   # lista de domínios
+├── secret.yaml      # credenciais SMTP
+└── cronjob.yaml     # CronJob (padrão: todo dia às 8h)
+```
+
+### 1. Build e push da imagem
+
+```bash
+docker build -t registry.interno.exemplo.com/certcheck:latest .
+docker push registry.interno.exemplo.com/certcheck:latest
+```
+
+> Atualize o campo `image:` no `cronjob.yaml` com o endereço do seu registry interno.
+
+### 2. Editar os arquivos
+
+**`k8s/configmap.yaml`** — adicione seus domínios:
+```yaml
+data:
+  domains.yaml: |
+    - meusite.com.br
+    - outrosite.net.br
+```
+
+**`k8s/secret.yaml`** — preencha as credenciais SMTP:
+```yaml
+stringData:
+  smtp-user: "remetente@gmail.com"
+  smtp-pass: "sua-senha-de-app"
+  notify-to: "destino@email.com"
+```
+
+> Nunca commite o `secret.yaml` com dados reais no Git.
+
+### 3. Aplicar no cluster
+
+```bash
+oc new-project certcheck          # ou: kubectl create namespace certcheck
+oc apply -f k8s/configmap.yaml
+oc apply -f k8s/secret.yaml
+oc apply -f k8s/cronjob.yaml
+```
+
+### 4. Testar manualmente
+
+```bash
+# Dispara o job imediatamente sem esperar o schedule
+oc create job certcheck-teste --from=cronjob/certcheck
+
+# Acompanha os logs
+oc logs -l job-name=certcheck-teste -f
+```
+
+### Ajustar o schedule
+
+O campo `schedule` no `cronjob.yaml` usa sintaxe cron padrão:
+
+```yaml
+schedule: "0 8 * * *"    # todo dia às 8h
+schedule: "0 8 * * 1"    # toda segunda às 8h
+schedule: "0 8,20 * * *" # duas vezes por dia: 8h e 20h
+```
+
+### Compatibilidade com OpenShift
+
+O Dockerfile e o CronJob já estão configurados para rodar como usuário não-root (`UID 1001`), com `readOnlyRootFilesystem` e sem capabilities — compatível com o SCC `restricted` do OpenShift por padrão.
+
 ## Licença
 
 MIT
