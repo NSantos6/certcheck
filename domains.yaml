@@ -1,0 +1,4 @@
+# Example domains file - one domain per line or as a YAML list
+- google.com
+- github.com
+- cloudflare.com
