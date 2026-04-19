@@ -8,6 +8,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/NSantos6/certcheck/internal/checker"
+	"github.com/NSantos6/certcheck/internal/notify"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 )
@@ -17,12 +18,26 @@ var scanWarnDaysDomain int
 var scanOutputJSON bool
 var scanFile string
 
+// email notification flags (all optional)
+var notifyTo string
+var smtpHost string
+var smtpPort int
+var smtpUser string
+var smtpPass string
+var smtpFrom string
+
+type scanResult struct {
+	ssl    checker.SSLResult
+	domain checker.DomainResult
+}
+
 var scanCmd = &cobra.Command{
 	Use:   "scan [domain...]",
 	Short: "Check both SSL and domain registration expiry",
 	Example: `  certcheck scan example.com.br
   certcheck scan --file domains.yaml
-  certcheck scan example.com --ssl-warn-days 14 --domain-warn-days 90`,
+  certcheck scan example.com --ssl-warn-days 14 --domain-warn-days 90
+  certcheck scan --file domains.yaml --notify eu@email.com --smtp-user eu@gmail.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		domains, err := resolveDomains(args, scanFile)
 		if err != nil {
@@ -32,12 +47,7 @@ var scanCmd = &cobra.Command{
 			return fmt.Errorf("no domains provided")
 		}
 
-		type combined struct {
-			ssl    checker.SSLResult
-			domain checker.DomainResult
-		}
-
-		results := make([]combined, len(domains))
+		results := make([]scanResult, len(domains))
 		var wg sync.WaitGroup
 
 		for i, d := range domains {
@@ -155,8 +165,59 @@ var scanCmd = &cobra.Command{
 		domTable.Render()
 		fmt.Println()
 
+		if notifyTo != "" {
+			if err := sendEmailAlert(results); err != nil {
+				fmt.Fprintf(os.Stderr, "aviso: falha ao enviar email: %v\n", err)
+			}
+		}
+
 		return nil
 	},
+}
+
+func sendEmailAlert(results []scanResult) error {
+	var items []notify.AlertItem
+
+	for _, r := range results {
+		if r.ssl.Error == nil && r.ssl.DaysLeft <= scanWarnDaysSSL {
+			items = append(items, notify.AlertItem{
+				Domain:   r.ssl.Domain,
+				Kind:     "SSL",
+				DaysLeft: r.ssl.DaysLeft,
+				Expiry:   r.ssl.ExpiresAt,
+			})
+		}
+		if r.domain.Error == nil && r.domain.DaysLeft <= scanWarnDaysDomain {
+			items = append(items, notify.AlertItem{
+				Domain:   r.domain.Domain,
+				Kind:     "Registro de Domínio",
+				DaysLeft: r.domain.DaysLeft,
+				Expiry:   r.domain.ExpiresAt,
+			})
+		}
+	}
+
+	if len(items) == 0 {
+		fmt.Println("Nenhum alerta para enviar — todos os domínios estão OK.")
+		return nil
+	}
+
+	pass := smtpPass
+	if pass == "" {
+		pass = os.Getenv("CERTCHECK_SMTP_PASS")
+	}
+
+	cfg := notify.SMTPConfig{
+		Host:     smtpHost,
+		Port:     smtpPort,
+		User:     smtpUser,
+		Password: pass,
+		From:     smtpFrom,
+		To:       notifyTo,
+	}
+
+	fmt.Printf("Enviando alerta para %s...\n", notifyTo)
+	return notify.SendAlert(cfg, items)
 }
 
 func init() {
@@ -164,5 +225,14 @@ func init() {
 	scanCmd.Flags().IntVar(&scanWarnDaysDomain, "domain-warn-days", 60, "warn when domain registration expires within N days")
 	scanCmd.Flags().BoolVar(&scanOutputJSON, "json", false, "output as JSON")
 	scanCmd.Flags().StringVar(&scanFile, "file", "", "file with list of domains (one per line or YAML)")
+
+	// email flags (all optional)
+	scanCmd.Flags().StringVar(&notifyTo, "notify", "", "email de destino para alertas (opcional)")
+	scanCmd.Flags().StringVar(&smtpHost, "smtp-host", "smtp.gmail.com", "servidor SMTP")
+	scanCmd.Flags().IntVar(&smtpPort, "smtp-port", 587, "porta SMTP")
+	scanCmd.Flags().StringVar(&smtpUser, "smtp-user", "", "usuário SMTP")
+	scanCmd.Flags().StringVar(&smtpPass, "smtp-pass", "", "senha SMTP (ou use a variável CERTCHECK_SMTP_PASS)")
+	scanCmd.Flags().StringVar(&smtpFrom, "smtp-from", "", "endereço de envio (padrão: smtp-user)")
+
 	rootCmd.AddCommand(scanCmd)
 }

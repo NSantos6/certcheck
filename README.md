@@ -11,7 +11,7 @@ Monitore a expiração de certificados SSL e o vencimento de registros de domín
 ### Compilando a partir do código fonte
 
 ```bash
-git clone https://github.com/nmesquitasantos/certcheck.git
+git clone https://github.com/NSantos6/certcheck.git
 cd certcheck
 go build -o certcheck .
 ```
@@ -82,6 +82,9 @@ certcheck scan meusite.com.br --ssl-warn-days 14 --domain-warn-days 90
 
 # Saída em JSON (útil para scripts e CI/CD)
 certcheck scan --file dominios.yaml --json
+
+# Enviar alerta por email se houver domínios expirando
+certcheck scan --file dominios.yaml --notify eu@email.com --smtp-user eu@gmail.com
 ```
 
 ## Arquivo de domínios
@@ -133,6 +136,45 @@ Domain Registration
   }
 ]
 ```
+
+## Notificações por email
+
+O comando `scan` pode enviar um email de alerta quando algum domínio estiver expirando ou já expirado. O envio é **opcional** — só acontece se o flag `--notify` for informado.
+
+O email só é enviado se houver domínios dentro do threshold configurado (`--ssl-warn-days` / `--domain-warn-days`). Se tudo estiver OK, nenhum email é enviado.
+
+```bash
+certcheck scan --file dominios.yaml \
+  --notify destino@email.com \
+  --smtp-host smtp.gmail.com \
+  --smtp-port 587 \
+  --smtp-user remetente@gmail.com \
+  --smtp-pass suasenha
+```
+
+### Flags de email
+
+| Flag | Padrão | Descrição |
+|---|---|---|
+| `--notify` | — | Email de destino (obrigatório para ativar) |
+| `--smtp-host` | `smtp.gmail.com` | Servidor SMTP |
+| `--smtp-port` | `587` | Porta SMTP |
+| `--smtp-user` | — | Usuário SMTP |
+| `--smtp-pass` | — | Senha SMTP |
+| `--smtp-from` | smtp-user | Endereço de envio |
+
+### Usando variável de ambiente (recomendado)
+
+Para evitar expor a senha no histórico do terminal, use a variável de ambiente `CERTCHECK_SMTP_PASS`:
+
+```bash
+export CERTCHECK_SMTP_PASS=suasenha
+certcheck scan --file dominios.yaml --notify eu@email.com --smtp-user eu@gmail.com
+```
+
+### Usando com Gmail
+
+No Gmail, você precisa usar uma **senha de app** (não a senha da conta). Gere uma em: `Conta Google → Segurança → Verificação em duas etapas → Senhas de app`.
 
 ## Uso em CI/CD
 
